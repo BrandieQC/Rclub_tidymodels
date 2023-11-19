@@ -1,0 +1,243 @@
+---
+title: "Chapter 6"
+author: "Brandie Quarles"
+date: "2023-11-18"
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load the Data
+
+```{r}
+library(tidymodels)
+data(ames)
+ames <- ames %>% mutate(Sale_Price = log10(Sale_Price))
+
+set.seed(502)
+ames_split <- initial_split(ames, prop = 0.80, strata = Sale_Price)
+ames_train <- training(ames_split)
+ames_test  <-  testing(ames_split)
+```
+
+# Chapter 6 - Fitting Models with parsnip
+
+<https://www.tmwr.org/models>
+
+## Create a Model 
+
+### Linear Regression Models
+
+-   *"Ordinary linear regression* uses the traditional method of least squares to solve for the model parameters."
+
+```{r}
+#use the stats package 
+#model <- lm(formula, data, ...) #syntax 
+```
+
+-   *"Regularized linear regression* adds a penalty to the least squares method to encourage simplicity by removing predictors and/or shrinking their coefficients towards zero. This can be executed using Bayesian or non-Bayesian techniques."
+
+```{r}
+#use the rstanarm package for Bayesian approach 
+#model <- stan_glm(formula, data, family = "gaussian", ...) #syntax 
+#... = arguments for the prior distributions of the parameters and details about the numerical aspects of the model 
+```
+
+```{r}
+#for non-Bayesian approach to regularized regression use glmnet model
+#model <- glmnet(x = matrix, y = vector, family = "gaussian", ...) #syntax 
+
+#In this case, the predictor data must already be formatted into a numeric matrix; there is only an x/y method and no formula method.
+```
+
+Problem with the above options is that their interfaces are heterogeneous. They require different formatting of the data and have different syntax for thier arguments.
+
+### Specifying the details of a model (via tidymodels methodlogy):
+
+1.  Specify the type of model based on its mathematical structure (Ex: linear regression, random forest, etc...)
+
+2.  Specify the engine for fitting the model; i.e. what software package should be used? (Ex: Stan or glmnet). Parsnip provides consistent interfaces for using those engines for modeling.
+
+3.  Declare the mode of the model, when required; i.e. the type of prediction outcome (Ex: regression, classification)
+
+Make the above specifications before referencing the data.
+
+```{r}
+library(tidymodels)
+tidymodels_prefer()
+
+linear_reg() %>% set_engine("lm")
+
+linear_reg() %>% set_engine("glmnet") 
+
+linear_reg() %>% set_engine("stan")
+```
+
+### Perform model estimation 
+
+Use the `fit()` function (to use a formula) or the `fit_xy()` function (when your data are already pre-processed).
+
+#### With parsnip, you can ignore the interface of the underlying model. 
+
+-   You can use a formula even if the modeling package only has an x/y interface.
+
+The `translate()` function can provide details on how **parsnip** converts the user\'s code to the package\'s syntax
+
+```{r}
+linear_reg() %>% set_engine("lm") %>% translate()
+
+linear_reg(penalty = 1) %>% set_engine("glmnet") %>% translate()
+
+linear_reg() %>% set_engine("stan") %>% translate()
+
+#"missing_arg()" = placeholder for the data that hasn't been provided yet 
+```
+
+**Example Code:** Predict the sale price of houses as a function of only long and lat
+
+```{r}
+lm_model <- 
+  linear_reg() %>% 
+  set_engine("lm")
+
+lm_form_fit <- 
+  lm_model %>% 
+  # Recall that Sale_Price has been pre-logged
+  fit(Sale_Price ~ Longitude + Latitude, data = ames_train)
+
+lm_xy_fit <- 
+  lm_model %>% 
+  fit_xy(
+    x = ames_train %>% select(Longitude, Latitude),
+    y = ames_train %>% pull(Sale_Price)
+  )
+
+lm_form_fit
+
+lm_xy_fit
+#no matter how you code it, you get the same results 
+```
+
+#### Parsnip provides consistency in the model arguments 
+
+-   Uses common argument names w/in and b/t packages
+
+-   Tries to use names that the people viewing the results would understand
+
+To map the parsnip names to the original names use a combo of help for the model and the translate( ) function.
+
+```{r}
+rand_forest(trees = 1000, min_n = 5) %>% 
+  set_engine("ranger") %>% 
+  set_mode("regression") %>% 
+  translate()
+```
+
+There are 2 catgs of model arguments:
+
+-   Main arguments - commonly used and available across engines
+
+-   Engine arguments - spec. to a particular engine or used more rarely
+
+Can specific engine-specific arguments in set_engine().
+
+```{r}
+rand_forest(trees = 1000, min_n = 5) %>% 
+  set_engine("ranger", verbose = TRUE) %>% #print out more info about the fit 
+  set_mode("regression") 
+```
+
+## Use the Model Results
+
+The parsnip model object stores several things
+
+-   The fitted model can be found in an element called fit - use the extract_fit_engine() function:
+
+```{r}
+lm_form_fit %>% extract_fit_engine()
+```
+
+You can then print or plot that object:
+
+```{r}
+lm_form_fit %>% extract_fit_engine() %>% vcov()
+```
+
+-   **Disclaimer: "**Never pass the `fit` element of a **parsnip** model to a model prediction function, i.e., use `predict(lm_form_fit)` but *do not* use `predict(lm_form_fit$fit)`. If the data were preprocessed in any way, incorrect predictions will be generated (sometimes, without errors). The underlying model\'s prediction function has no idea if any transformations have been made to the data prior to running the model.:
+
+-   You can also save the summary() results
+
+```{r}
+model_res <- 
+  lm_form_fit %>% 
+  extract_fit_engine() %>% 
+  summary()
+
+# The model coefficient table is accessible via the `coef` method.
+param_est <- coef(model_res)
+class(param_est)
+
+param_est
+```
+
+If you want to create a table or other visualization from the parameter values, you would need to convert the above result from a matrix to a data frame.
+
+-   Use the broom package to convert model objects to tidy structure
+
+```{r}
+tidy(lm_form_fit)
+#removes info about the type of statistical test
+#standardizes the row names 
+```
+
+## Make Predictions
+
+Parsnip rules for predictions
+
+1.  Results = tibble
+2.  Col names = predictable
+3.  Same \# rows in tibble as in the input data set (i.e. if any rows of the new data contain missing values, the output will be padded with missing results for those rows)
+
+```{r}
+ames_test_small <- ames_test %>% slice(1:5)
+predict(lm_form_fit, new_data = ames_test_small)
+#row order same as OG data --> easier to mege with the OG data
+
+ames_test_small %>% 
+  select(Sale_Price) %>% 
+  bind_cols(predict(lm_form_fit, ames_test_small)) %>% 
+  # Add 95% prediction intervals to the results:
+  bind_cols(predict(lm_form_fit, ames_test_small, type = "pred_int")) 
+```
+
+Benefit of standardization = different models can be used with the same syntax
+
+```{r}
+#alternative model 
+tree_model <- 
+  decision_tree(min_n = 2) %>% 
+  set_engine("rpart") %>% 
+  set_mode("regression")
+
+tree_fit <- 
+  tree_model %>% 
+  fit(Sale_Price ~ Longitude + Latitude, data = ames_train)
+
+ames_test_small %>% 
+  select(Sale_Price) %>% 
+  bind_cols(predict(tree_fit, ames_test_small))
+```
+
+A list of all of the models that can be used with **parsnip** (across different packages that are on CRAN) can be found at <https://www.tidymodels.org/find/>.
+
+## Creating model specifications - made easy
+
+```{r}
+#parsnip_addin()
+```
+
+Opens a window w/ a list of possible models for each model mode.
