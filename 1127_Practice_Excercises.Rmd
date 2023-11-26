@@ -1,0 +1,176 @@
+---
+title: "Nov27_Practice"
+author: "Brandie Quarles"
+date: "2023-11-20"
+output: 
+  html_document: 
+    keep_md: yes
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+```
+
+
+
+We will use the ChickWeight data set. It is a built in dataset For info:
+
+```{r}
+?ChickWeight
+#Weight versus age of chicks on different diets
+```
+
+To use it:
+
+```{r}
+data(ChickWeight)
+# then it is an object in your environment
+summary(ChickWeight)
+
+# Or if you have skimr installed
+skimr::skim(ChickWeight) #nicer summary
+
+head(ChickWeight)
+#this is an example of repeated measures, each chick measured at different time points 
+#also each chick is nested within a diet (only 1 diet per chick)
+```
+
+1.  Use rsample to create training and test sets from ChickWeight. Think
+    about how you want this to be split. hint:: you may need to also use
+    a function from Chapter 3. message me if you are stuck.
+```{r}
+set.seed(510)
+chicks_split_simple <- initial_split(ChickWeight, prop=0.80)
+chicks_split_simple
+chicks_train_simple <- training(chicks_split_simple)
+chicks_test_simple  <-  testing(chicks_split_simple)
+#this isn't good b/c it splits up data from a given chick 
+```
+
+Simple + Strata by weight
+```{r}
+ggplot(ChickWeight, aes(x = weight)) + 
+  geom_histogram(bins = 50, col= "white") #data very right skewed by weight
+#want stratified sampling 
+
+set.seed(511)
+chicks_split_strata <- initial_split(ChickWeight, prop=0.80, strata=weight)
+chicks_split_strata
+chicks_train_strata <- training(chicks_split_strata)
+chicks_test_strata  <-  testing(chicks_split_strata)
+#stratifying by weight is good, but still need to fix the chicks problem
+```
+
+I need it to put different chicks in different sets, but keep all of a single chick's info together:
+```{r}
+set.seed(512)
+chicks_split_chick <- 
+  ChickWeight %>% 
+  group_nest(Chick)  %>% 
+  initial_split(prop=0.80)
+chicks_split_chick
+chicks_train_chick <- training(chicks_split_chick)
+chicks_test_chick  <-  testing(chicks_split_chick)
+
+#won't let me also use a strata argument with this syntax
+```
+
+
+2.  Fit an lm to the ChickWeight (training) data set, modelling weight
+    as a function of diet and time (and their interaction?), using
+    parsnip tools. This really should be a mixed-effects model, so see
+    if you can do that instead (e.g. with lme4 or stan as the engine).
+```{r}
+#regular linear model
+lm_model <- 
+  linear_reg() %>% 
+  set_engine("lm")
+
+chicks_train_chick_ungrouped <- chicks_train_chick %>% unnest(data)
+chicks_train_chick_ungrouped
+
+lm_fit <- 
+  lm_model %>% 
+  fit(weight ~ Diet + Time, data = chicks_train_chick_ungrouped)
+
+lm_fit %>% extract_fit_engine()
+
+model_res <- 
+  lm_fit %>% 
+  extract_fit_engine() %>% 
+  summary()
+model_res
+
+param_est <- coef(model_res)
+class(param_est)
+
+param_est
+
+tidy(lm_fit) 
+```
+
+```{r}
+#mixed-effects model
+library(multilevelmod)
+show_engines('linear_reg')
+mixed_lm_model <-
+  linear_reg() %>% 
+  set_engine("lmer")
+
+unique(chicks_train_chick_ungrouped$Time) #time should be nested within Chick which is nested within diet
+unique(chicks_train_chick_ungrouped$Diet)
+lm_mixed_fit <- 
+  mixed_lm_model %>% 
+  fit(weight ~ Diet + (1|Diet/Time), data = chicks_train_chick_ungrouped) #I'm pretty sure this is the wrong syntax
+
+lm_mixed_fit %>% extract_fit_engine()
+
+model_res <- 
+  lm_mixed_fit %>% 
+  extract_fit_engine() %>% 
+  summary()
+model_res
+
+param_est <- coef(model_res)
+class(param_est)
+
+param_est
+
+#tidy(lm_mixed_fit) #Error: No tidy method for objects of class lmerMod
+```
+
+
+3.  Use your model to predict weight in your test set chicks. (using
+    parsnip tools)
+```{r}
+chicks_test_chick_ungrouped <- chicks_test_chick %>% unnest(data)
+chicks_test_chick_ungrouped
+
+predict(lm_fit, new_data = chicks_test_chick_ungrouped)
+
+pred_obs_data <- chicks_test_chick_ungrouped %>% 
+  select(weight) %>% 
+  bind_cols(predict(lm_fit, chicks_test_chick_ungrouped)) %>% 
+  # Add 95% prediction intervals to the results:
+  bind_cols(predict(lm_fit, chicks_test_chick_ungrouped, type = "pred_int")) 
+pred_obs_data
+```
+
+4.  Plot predicted vs observed in your test data set.
+```{r}
+pred_obs_data %>% ggplot(aes(weight, .pred)) + geom_point()
+```
+
+
+5.  Optional: recreate an Ames Neighborhood plot.
+
+    1.  Tutorials are at <https://ggplot2tutor.com/tutorials/streetmaps>
+        <https://joshuamccrain.com/tutorials/maps/streets_tutorial.html>
