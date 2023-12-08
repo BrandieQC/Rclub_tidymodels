@@ -17,8 +17,9 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(tidyverse)
 library(tidymodels)
+tidymodels_prefer()
+library(lmerTest)
 ```
-
 
 
 We will use the ChickWeight data set. It is a built in dataset For info:
@@ -42,6 +43,16 @@ head(ChickWeight)
 #this is an example of repeated measures, each chick measured at different time points 
 #also each chick is nested within a diet (only 1 diet per chick)
 ```
+
+Plot the data
+```{r}
+ChickWeight %>%
+  ggplot(aes(x=Time, y=weight)) +
+  geom_line(aes(group=Chick), alpha=.2) +
+  geom_smooth() +
+  facet_wrap(~Diet)
+```
+
 
 1.  Use rsample to create training and test sets from ChickWeight. Think
     about how you want this to be split. hint:: you may need to also use
@@ -82,6 +93,37 @@ chicks_test_chick  <-  testing(chicks_split_chick)
 
 #won't let me also use a strata argument with this syntax
 ```
+
+Julin's Version:
+```{r}
+#want chicks from different diets in both sets 
+chicken.gr <- ChickWeight %>% group_by(Chick, Diet) %>% nest()
+
+chick.split <- chicken.gr %>% 
+  rsample::initial_split(prop = .8, strata = Diet)
+
+chick.split
+#alternatively could use group_initial_split()
+
+chick.train <- training(chick.split) %>% unnest(cols = data)
+chick.test <- testing(chick.split) %>% unnest(cols = data)
+chick.train
+
+ChickWeight %>% group_by(Diet) %>% summarize(chicks = length(unique(Chick)))
+chick.train %>% group_by(Diet) %>% summarize(chicks = length(unique(Chick)))
+chick.test %>% group_by(Diet) %>% summarize(chicks = length(unique(Chick)))
+```
+
+```{r}
+#John's version
+grouped_split_chick <- ChickWeight %>%
+  group_nest(Chick, Diet) %>%
+  initial_split(prop = 0.80, strata = Diet)
+
+chick_train <- training(grouped_split_chick) %>% unnest(data)
+chick_test<- testing(grouped_split_chick) %>% unnest(data)
+```
+
 
 
 2.  Fit an lm to the ChickWeight (training) data set, modelling weight
@@ -131,6 +173,16 @@ lm_mixed_fit <-
   mixed_lm_model %>% 
   fit(weight ~ Diet + (1|Diet/Time), data = chicks_train_chick_ungrouped) #I'm pretty sure this is the wrong syntax
 
+#best version
+#fit(weight ~ Time + Diet +  (1|Chick)) # works b/c each chick has an individual id
+#1| says fit a different intercept for each chick 
+
+#another option to explore 
+#fit(weight ~ Time + Diet +  (1 + Time|Chick)) #different slope for each time by chick and different intercepts 
+
+#interaction term
+#fit(weight ~ Time*Diet + (1|Chick))
+
 lm_mixed_fit %>% extract_fit_engine()
 
 model_res <- 
@@ -145,6 +197,14 @@ class(param_est)
 param_est
 
 #tidy(lm_mixed_fit) #Error: No tidy method for objects of class lmerMod
+#Need: 
+library(broom.mixed)
+
+#To compare models use #bind_rows(glance(fit1), glance(fit2))
+#tidy(fit2)
+#or anova(extract_fit_engine(fit1), extract_fit_engine(fit2))
+
+
 ```
 
 
@@ -162,11 +222,43 @@ pred_obs_data <- chicks_test_chick_ungrouped %>%
   # Add 95% prediction intervals to the results:
   bind_cols(predict(lm_fit, chicks_test_chick_ungrouped, type = "pred_int")) 
 pred_obs_data
+
+#If you have multiple models can ocmbine them into a tibble
+#tibble(name=ls(.GlobalEnv, pattern=".*_fit.*"), fit=) #see Julin's code 
+#prediction via parsnip may not be able to take into account random effects from mixed effects models
+#can use predict.merMod outside of parsnip context #can make predictions for new block or new chick for example 
 ```
 
 4.  Plot predicted vs observed in your test data set.
 ```{r}
 pred_obs_data %>% ggplot(aes(weight, .pred)) + geom_point()
+
+#ideal = different colors for different diets 
+
+#Julin also plotted time on x and weihgt on y w/ pred and obs as different types of lines 
+fits <- tibble(name=ls(.GlobalEnv, pattern=".*_fit.*"),
+               fit = map(name, get))
+fits
+
+fits <- fits %>% mutate(pred=map(fit, predict, new_data=chick.test),
+                        pred=map(pred, bind_cols, chick.test)) # add observed
+
+fits %>% select(-fit) %>% unnest(pred)
+
+fits %>% select(-fit) %>% unnest(pred) %>%
+  ggplot(aes(x=weight, y=.pred, color=Diet)) +
+  scale_color_brewer(type = "qual", palette = "Set2") +
+  geom_point() +
+  facet_wrap(~name) +
+  coord_equal()
+
+fits %>% select(-fit) %>% unnest(pred) %>% 
+  rename(obs = weight, model=name) %>%
+  pivot_longer(cols=c(obs, .pred)) %>%
+  ggplot(aes(x=Time, y=value, color=Diet, lty=name)) +
+  scale_color_brewer(type = "qual", palette = "Set1") +
+  geom_smooth(se = FALSE) +
+  facet_wrap(~model)
 ```
 
 
