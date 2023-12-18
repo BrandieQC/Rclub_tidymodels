@@ -7,6 +7,9 @@ output:
     keep_md: yes
 ---
 
+Notes from meetings:
+* Might be better to use cross validation than test set for small data. 
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
