@@ -1,0 +1,304 @@
+---
+title: "Chapter 9"
+author: "Brandie Quarles"
+date: "`r Sys.Date()`"
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Chapter 9 - Judging Model Effectiveness
+
+<https://www.tmwr.org/performance>
+
+Which metrics you use to examine model effectiveness matters!
+
+-   Root mean square (RMSE) = measure of accuracy
+
+    -   Can result in more variability, but uniform accuracy in model predictions
+
+-   Coefficient of determination (R^2^) = measure of correlation
+
+    -   Can result in tighter correlation b/t observed and predicted, [except in the tails]{.underline}
+
+**Tidymodels package of relevance: yardstick.**
+
+### Carry Over AMES Code:
+
+```{r}
+library(tidymodels)
+data(ames)
+ames <- mutate(ames, Sale_Price = log10(Sale_Price))
+
+set.seed(502)
+ames_split <- initial_split(ames, prop = 0.80, strata = Sale_Price)
+ames_train <- training(ames_split)
+ames_test  <-  testing(ames_split)
+
+ames_rec <- 
+  recipe(Sale_Price ~ Neighborhood + Gr_Liv_Area + Year_Built + Bldg_Type + 
+           Latitude + Longitude, data = ames_train) %>%
+  step_log(Gr_Liv_Area, base = 10) %>% 
+  step_other(Neighborhood, threshold = 0.01) %>% 
+  step_dummy(all_nominal_predictors()) %>% 
+  step_interact( ~ Gr_Liv_Area:starts_with("Bldg_Type_") ) %>% 
+  step_ns(Latitude, Longitude, deg_free = 20)
+  
+lm_model <- linear_reg() %>% set_engine("lm")
+
+lm_wflow <- 
+  workflow() %>% 
+  add_model(lm_model) %>% 
+  add_recipe(ames_rec)
+
+lm_fit <- fit(lm_wflow, ames_train)
+```
+
+## Performance Metrics and Inference 
+
+Inferential vs. predictive models
+
+-   Inferential model - used to understand relationships
+
+    -   Underlying statistical qualities are important
+
+    -   Should still use functions that describe/measure predictive strength --\> increased credibility of the model
+
+-   Predictive model - predictive strength = primary importance
+
+    -   Underlying statistical qualities not as important
+
+## Regression Metrics 
+
+General syntax of yardstick functions: function(data, truth, ...)
+
+-   data = data frame or tibble
+
+-   truth = observed outcome values
+
+-   ... = other arguments used to specify the columns containing the predictors
+
+### Example with AMES data:
+
+#### Produce Predictions:
+
+```{r}
+ames_test_res <- predict(lm_fit, new_data = ames_test %>% select(-Sale_Price))
+ames_test_res 
+```
+
+\*Note: they use the test set here for illustration, but suggest that a resampling method would be better than using the test set at this step of the modeling process.
+
+#### Match predicted values with corresponding observed outcome 
+
+```{r}
+ames_test_res <- bind_cols(ames_test_res, ames_test %>% select(Sale_Price))
+ames_test_res
+```
+
+\*Note: Remember that we previously transformed the data with log10 --\> we are still in that scale. It's best to analyze the predictions on the transformed scale, even if the predictions will be reported using the original units.
+
+#### Plot the observed vs. predicted figure
+
+```{r}
+ggplot(ames_test_res, aes(x = Sale_Price, y = .pred)) + 
+  # Create a diagonal line:
+  geom_abline(lty = 2) + 
+  geom_point(alpha = 0.5) + 
+  labs(y = "Predicted Sale Price (log10)", x = "Sale Price (log10)") +
+  # Scale and size the x- and y-axis uniformly:
+  coord_obs_pred()
+```
+
+#### Compute RMSE
+
+```{r}
+rmse(ames_test_res, truth = Sale_Price, estimate = .pred)
+```
+
+#### Create a metric set
+
+```{r}
+ames_metrics <- metric_set(rmse, rsq, mae) #mae = mean absolute error 
+ames_metrics(ames_test_res, truth = Sale_Price, estimate = .pred)
+```
+
+-   RMSE and MAE - measure the difference b/t the predicted and observed values
+
+    -   In the scale of the outcome
+
+-   R^2^ = squared correlation b/t the predicted and observed values
+
+    -   Closer to 1 = better
+
+\*Note: There isn't a function for adjusted R^2^ b/c it is used when the same data used to fit the model are used to evaluate the model. Tidymodels creators believe that it is always better to compute performance on a separate data set than the one used to fit the model.
+
+## Binary Classification Metrics
+
+Example predictions from a test data set with two classes:
+
+```{r}
+data(two_class_example)
+tibble(two_class_example)
+```
+
+Columns "Class1" and "Class2" = predicted class probabilities
+
+Column "predicted" = discrete predictions
+
+### Yardstick functions for discrete predictions 
+
+```{r}
+# A confusion matrix: 
+conf_mat(two_class_example, truth = truth, estimate = predicted)
+
+# Accuracy:
+accuracy(two_class_example, truth, predicted)
+
+# Matthews correlation coefficient:
+mcc(two_class_example, truth, predicted)
+
+# F1 metric:
+f_meas(two_class_example, truth, predicted)
+
+# Combining these three classification metrics together
+classification_metrics <- metric_set(accuracy, mcc, f_meas)
+classification_metrics(two_class_example, truth = truth, estimate = predicted)
+```
+
+"The Matthews correlation coefficient and F1 score both summarize the confusion matrix, but compared to `mcc()`, which measures the quality of both positive and negative examples, the `f_meas()` metric emphasizes the positive class, i.e., the event of interest."
+
+The functions have an argument called `event_level` to distinguish positive and negative levels.
+
+-   Default = the *first* level of the outcome factor is the event of interest.
+
+-   Note: other R functions use the second level to denote the event b/c of cases where outcome is encoded as 0/1 (1 = event). Since tidymodels requires a categorical outcome to be encoded as a factor, this is no longer necessary.
+
+#### Ex when 2nd level = event:
+
+```{r}
+f_meas(two_class_example, truth, predicted, event_level = "second")
+```
+
+### Yardstick functions for predicted probabilities 
+
+Receiver operating characteristic (ROC) curve - computes the sensitivity and specificity over a continuum of diff event thresholds
+
+-   roc_curve() - computes the data points that make up the ROC curve
+
+-   roc_auc() - computes the area under the under the curve
+
+```{r}
+two_class_curve <- roc_curve(two_class_example, truth, Class1) #add an argument for the event of interest 
+two_class_curve
+
+roc_auc(two_class_example, truth, Class1)
+autoplot(two_class_curve)
+#if the curve was close to the diagonal line, then the predictiosn wouldn't be better than random guessing
+#upper left hand corner --> model performs well at different thresholds 
+```
+
+Other functions that use probability estimates: `gain_curve()`, `lift_curve()`, and `pr_curve()`
+
+## Multiclass Classification Metrics 
+
+For 3 or more classes...
+
+Example data set:
+
+```{r}
+data(hpc_cv)
+tibble(hpc_cv) 
+#4 classes 
+```
+
+### Functions for discrete class probabilities are identical to binary ones:
+
+```{r}
+accuracy(hpc_cv, obs, pred)
+
+mcc(hpc_cv, obs, pred)
+```
+
+Sensitivity measures the true positive rate, which is specific to two classes (event vs. nonevent).
+
+-   Wrapper methods can be used to apply sensitivity to multiclass outcomes. These options are macro-averaging, macro-weighted averaging, and micro-averaging:
+
+    -   "Macro-averaging computes a set of one-versus-all metrics using the standard two-class statistics. These are averaged.
+
+    -   Macro-weighted averaging does the same but the average is weighted by the number of samples in each class.
+
+    -   Micro-averaging computes the contribution for each class, aggregates them, then computes a single metric from the aggregates."
+
+"Using sensitivity as an example, the usual two-class calculation is the ratio of the number of correctly predicted events divided by the number of true events. The manual calculations for these averaging methods are:"
+
+```{r}
+class_totals <- 
+  count(hpc_cv, obs, name = "totals") %>% 
+  mutate(class_wts = totals / sum(totals))
+class_totals
+
+cell_counts <- 
+  hpc_cv %>% 
+  group_by(obs, pred) %>% 
+  count() %>% 
+  ungroup()
+
+# Compute the four sensitivities using 1-vs-all
+one_versus_all <- 
+  cell_counts %>% 
+  filter(obs == pred) %>% 
+  full_join(class_totals, by = "obs") %>% 
+  mutate(sens = n / totals)
+one_versus_all
+
+# Three different estimates:
+one_versus_all %>% 
+  summarize(
+    macro = mean(sens), 
+    macro_wts = weighted.mean(sens, class_wts),
+    micro = sum(n) / sum(totals)
+  )
+```
+
+#### Use yardstick to do the calculations for you:
+
+```{r}
+sensitivity(hpc_cv, obs, pred, estimator = "macro") #use the estiamator argument to applly the above methods 
+
+sensitivity(hpc_cv, obs, pred, estimator = "macro_weighted")
+
+sensitivity(hpc_cv, obs, pred, estimator = "micro")
+```
+
+### Functions for probability estimates - analogs to binary ones
+
+ROC:
+
+```{r}
+roc_auc(hpc_cv, obs, VF, F, M, L) #have to give it all of the class prob cols
+```
+
+Can also use macro-weighting
+
+```{r}
+roc_auc(hpc_cv, obs, VF, F, M, L, estimator = "macro_weighted")
+```
+
+Can also use grouping:
+
+```{r}
+hpc_cv %>% 
+  group_by(Resample) %>% 
+  accuracy(obs, pred)
+
+hpc_cv %>% 
+  group_by(Resample) %>% 
+  roc_curve(obs, VF, F, M, L) %>% 
+  autoplot()
+#VF is predicted better than the F or M classes 
+```
