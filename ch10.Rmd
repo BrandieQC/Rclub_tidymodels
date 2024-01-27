@@ -1,0 +1,416 @@
+---
+title: "Chapter 10"
+author: "Brandie Quarles"
+date: "`r Sys.Date()`"
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Chapter 10 - Resampling for Evaluating Performance
+
+<https://www.tmwr.org/resampling>
+
+## Resubstitution Approach
+
+When you measure performance on the same data used for training.
+
+Example with Ames data: compare previously fitted lm model to a random forest model on the same training set.
+
+Previous AMES code:
+
+```{r}
+library(tidymodels)
+data(ames)
+ames <- mutate(ames, Sale_Price = log10(Sale_Price))
+
+set.seed(502)
+ames_split <- initial_split(ames, prop = 0.80, strata = Sale_Price)
+ames_train <- training(ames_split)
+ames_test  <-  testing(ames_split)
+
+ames_rec <- 
+  recipe(Sale_Price ~ Neighborhood + Gr_Liv_Area + Year_Built + Bldg_Type + 
+           Latitude + Longitude, data = ames_train) %>%
+  step_log(Gr_Liv_Area, base = 10) %>% 
+  step_other(Neighborhood, threshold = 0.01) %>% 
+  step_dummy(all_nominal_predictors()) %>% 
+  step_interact( ~ Gr_Liv_Area:starts_with("Bldg_Type_") ) %>% 
+  step_ns(Latitude, Longitude, deg_free = 20)
+  
+lm_model <- linear_reg() %>% set_engine("lm")
+
+lm_wflow <- 
+  workflow() %>% 
+  add_model(lm_model) %>% 
+  add_recipe(ames_rec)
+
+lm_fit <- fit(lm_wflow, ames_train)
+```
+
+Random Forest model:
+
+```{r}
+rf_model <- 
+  rand_forest(trees = 1000) %>% 
+  set_engine("ranger") %>% 
+  set_mode("regression")
+
+rf_wflow <- 
+  workflow() %>% 
+  add_formula(
+    Sale_Price ~ Neighborhood + Gr_Liv_Area + Year_Built + Bldg_Type + 
+      Latitude + Longitude) %>% 
+  add_model(rf_model) 
+
+rf_fit <- rf_wflow %>% fit(data = ames_train)
+```
+
+Compare the linear and random forest models
+
+```{r}
+estimate_perf <- function(model, dat) {
+  # Capture the names of the `model` and `dat` objects
+  cl <- match.call()
+  obj_name <- as.character(cl$model)
+  data_name <- as.character(cl$dat)
+  data_name <- gsub("ames_", "", data_name)
+  
+  # Estimate these metrics:
+  reg_metrics <- metric_set(rmse, rsq)
+  
+  model %>%
+    predict(dat) %>%
+    bind_cols(dat %>% select(Sale_Price)) %>%
+    reg_metrics(Sale_Price, .pred) %>%
+    select(-.estimator) %>%
+    mutate(object = obj_name, data = data_name)
+}
+```
+
+Compute rmse and rsq
+
+```{r}
+estimate_perf(rf_fit, ames_train)
+
+estimate_perf(lm_fit, ames_train)
+
+#Random forest model seems ot have a better fit
+```
+
+Apply the rf model to the test set
+
+```{r}
+estimate_perf(rf_fit, ames_test)
+```
+
+Much higher error on the test set than the training set.
+
+-   Random forest models is an example of a low bias model --\> it can learn complex trends from the data ---\>sometimes nearly memorizes the training set
+
+-   Linear regression model is consistent b/t training and test sets b/c of its limited complexity
+
+## Resampling Methods
+
+Only conducted on the training set
+
+For each iteration of resampling the data is split into 2 subsamples (analysis and assessment set)
+
+### Cross-Validation
+
+V- fold CV - data randomly split into V sets of roughly equal size.
+
+-   3-fold CV results in 3 iterations of resampling where one fold is held out for assessment and the other 2 folds are substrate for the model. The final resampling estimate avgs each of the V replicates
+
+-   V=5 or 10 are more reliable; 10 is default for this book
+
+    -   larger values ---\> small bias w/ substantial variance
+
+    -   smaller values ---\>large bias but low variance
+
+10-fold example with Ames data:
+
+```{r}
+set.seed(1001)
+ames_folds <- vfold_cv(ames_train, v = 10)
+ames_folds
+
+#[analysis/assessment]
+```
+
+Manually retrieve the partitioned data:
+
+```{r}
+# For the first fold:
+ames_folds$splits[[1]] %>% analysis() %>% dim()
+```
+
+Variations of CV:
+
+-   Repeated
+
+-   Leave One Out (LOO)
+
+-   Monte Carlo (MCCV)
+
+#### Repeated CV
+
+"To create *R* repeats of *V*-fold cross-validation, the same fold generation process is done *R* times to generate *R* collections of *V* partitions. Now, instead of averaging *V* statistics, V×R statistics produce the final resampling estimate. Due to the Central Limit Theorem, the summary statistics from each model tend toward a normal distribution, as long as we have a lot of data relative to V×R."
+
+```{r}
+vfold_cv(ames_train, v = 10, repeats = 5)
+```
+
+#### Leave-One-Out CV
+
+"If there are n training set samples, n models are fit using n−1 rows of the training set. Each model predicts the single excluded data point. At the end of resampling, the n predictions are pooled to produce a single performance statistic."
+
+Computationally excessive and may not have good stat properties.
+
+#### Monte Carlo CV
+
+"Like *V*-fold cross-validation, it allocates a fixed proportion of data to the assessment sets. The difference between MCCV and regular cross-validation is that, for MCCV, this proportion of the data is randomly selected each time. This results in assessment sets that are not mutually exclusive."
+
+```{r}
+mc_cv(ames_train, prop = 9/10, times = 20)
+```
+
+### Validation Sets
+
+Single partition set aside to estimate performance
+
+-   Initial data is split into a training, validation, and test set
+
+-   Typically used when original pool of data is very large --\> single partition may be big enough to char. model performance
+
+    ```{r}
+    # Previously:
+    set.seed(52)
+    # To put 60% into training, 20% in validation, and 20% in testing:
+    ames_val_split <- initial_validation_split(ames, prop = c(0.6, 0.2))
+    ames_val_split
+
+    # Object used for resampling: 
+    val_set <- validation_set(ames_val_split)
+    val_set
+    ```
+
+### Bootstrapping
+
+"A bootstrap sample of the training set is a sample that is the same size as the training set but is drawn *with replacement*. This means that some training set data points are selected multiple times for the analysis set."
+
+-   assessment set = out-of-bag sample
+
+-   Results in performance estimates with very low variance, but significant pessimistic bias (i.e. if true accuracy is 90%, it would estimate the value to be less than 90%)
+
+```{r}
+bootstraps(ames_train, times = 5)
+```
+
+### Rolling Forecasting Origin Resampling
+
+For time series data when you need to be able to seasonal or other temporal trends in the data
+
+-   estimate the model w/ historical data and evaluate it with the most recent data
+
+-   The size of the initial analysis and assessment sets are specified. --\>The first iteration of resampling uses these sizes, starting from the beginning of the series. --\>The second iteration uses the same data sizes but shifts over by a set number of samples (discards the first training set sample)
+
+-   Or "The analysis set can cumulatively grow (as opposed to remaining the same size). After the first initial analysis set, new samples can accrue without discarding the earlier data."
+
+-   Or "The resamples need not increment by one. For example, for large data sets, the incremental block could be a week or month instead of a day."
+
+```{r}
+time_slices <- 
+  tibble(x = 1:365) %>% 
+  rolling_origin(initial = 6 * 30, assess = 30, skip = 29, cumulative = FALSE)
+
+data_range <- function(x) {
+  summarize(x, first = min(x), last = max(x))
+}
+
+map_dfr(time_slices$splits, ~   analysis(.x) %>% data_range())
+
+map_dfr(time_slices$splits, ~ assessment(.x) %>% data_range())
+```
+
+## Estimating Performance
+
+```{r}
+#model_spec %>% fit_resamples(formula,  resamples, ...)
+#model_spec %>% fit_resamples(recipe,   resamples, ...)
+#workflow   %>% fit_resamples(          resamples, ...)
+```
+
+Optional arguments to add to fit_resamples()
+
+-   `metrics`: A metric set of performance statistics to compute. By default, regression models use RMSE and R^2^ while classification models compute the area under the ROC curve and overall accuracy.
+
+-   `control`: A list created by `control_resamples()` with various options.
+
+    -   `verbose`: A logical for printing logging.
+
+    -   `extract`: A function for retaining objects from each model iteration
+
+    -   `save_pred`: A logical for saving the assessment set predictions.
+
+```{r}
+#example using save_pred
+keep_pred <- control_resamples(save_pred = TRUE, save_workflow = TRUE)
+
+set.seed(1003)
+rf_res <- 
+  rf_wflow %>% 
+  fit_resamples(resamples = ames_folds, control = keep_pred)
+rf_res
+
+#metrics containes the assessment set performance stats
+#notes contains any warnings or errors generated during resampling #predictions (when save_pred=TRUE) - tibbles w/ out of sample preds 
+```
+
+More usable format of performance metrics
+
+```{r}
+collect_metrics(rf_res)
+#thesea re averaged over the resampling replicates
+#to get metrics for each resample use summarize=FALSE
+```
+
+Assessment set predictions:
+
+```{r}
+assess_res <- collect_predictions(rf_res)
+assess_res
+#row matches the row of the OG row in the training set so that the data can be joined properly 
+```
+
+\*Note: "For some resampling methods, such as the bootstrap or repeated cross-validation, there will be multiple predictions per row of the original training set. To obtain summarized values (averages of the replicate predictions) use `collect_predictions(object, summarize = TRUE)`."
+
+Compare the observed and held-out predicted values
+
+```{r}
+assess_res %>% 
+  ggplot(aes(x = Sale_Price, y = .pred)) + 
+  geom_point(alpha = .15) +
+  geom_abline(color = "red") + 
+  coord_obs_pred() + 
+  ylab("Predicted")
+```
+
+2 houses w/ low sale price that are overpredicted (2 dots on left side of above figure)
+
+```{r}
+over_predicted <- 
+  assess_res %>% 
+  mutate(residual = Sale_Price - .pred) %>% 
+  arrange(desc(abs(residual))) %>% 
+  slice(1:2)
+over_predicted #pull out the two overpredicted houses 
+
+ames_train %>% 
+  slice(over_predicted$.row) %>% 
+  select(Gr_Liv_Area, Neighborhood, Year_Built, Bedroom_AbvGr, Full_Bath) #find the two houses in the original data set with all of the other info 
+```
+
+### Use a validation set instead
+
+```{r}
+val_res <- rf_wflow %>% fit_resamples(resamples = val_set)
+val_res
+
+collect_metrics(val_res)
+```
+
+## Parallel Processing 
+
+The models created during resampling could be fit simultaneously w/o issues (each one is independent).
+
+"The **tune** package uses the [**foreach**](https://cran.r-project.org/package=foreach) package to facilitate parallel computations. These computations could be split across processors on the same computer or across different computers, depending on the chosen technology."
+
+On a single computer the number of possible worker processes is determined as follows:
+
+```{r}
+# The number of physical cores in the hardware:
+parallel::detectCores(logical = FALSE)
+#2
+
+# The number of possible independent processes that can 
+# be simultaneously used:  
+parallel::detectCores(logical = TRUE)
+#4
+
+#While these extra resources can improve performance, most of the speed-ups produced by parallel processing occur when processing uses fewer than the number of physical cores.
+```
+
+See the chapter for more info on parallel processing technologies.
+
+\*Note: "the memory requirements multiply for each additional core used. For example, if the current data set is 2 GB in memory and three cores are used, the total memory requirement is 8 GB (2 for each worker process plus the original). Using too many cores might cause the computations (and the computer) to slow considerably."
+
+## Saving the Resampled Objects
+
+Resampling models are typically not retained b/c we usually don't need them after calc the performance stats. Once you have the best model, fit that again to the whole training set so that the model parameters can be estimated w/ more data
+
+IF you do want to keep them use the extract option of control_resamples().
+
+Fit a linear regression w/ the previously developed recipe:
+
+```{r}
+ames_rec <- 
+  recipe(Sale_Price ~ Neighborhood + Gr_Liv_Area + Year_Built + Bldg_Type + 
+           Latitude + Longitude, data = ames_train) %>%
+  step_other(Neighborhood, threshold = 0.01) %>% 
+  step_dummy(all_nominal_predictors()) %>% 
+  step_interact( ~ Gr_Liv_Area:starts_with("Bldg_Type_") ) %>% 
+  step_ns(Latitude, Longitude, deg_free = 20)
+
+lm_wflow <-  
+  workflow() %>% 
+  add_recipe(ames_rec) %>% 
+  add_model(linear_reg() %>% set_engine("lm")) 
+
+lm_fit <- lm_wflow %>% fit(data = ames_train)
+
+# Select the recipe: 
+extract_recipe(lm_fit, estimated = TRUE)
+```
+
+Save the coeff for a fitted model object like so:
+
+```{r}
+get_model <- function(x) {
+  extract_fit_parsnip(x) %>% tidy()
+}
+
+
+# Test it using: 
+get_model(lm_fit)
+```
+
+Apply the function to the 10 resampled fits:
+
+```{r}
+ctrl <- control_resamples(extract = get_model)
+
+lm_res <- lm_wflow %>%  fit_resamples(resamples = ames_folds, control = ctrl)
+lm_res
+```
+
+What is the new extracts column?
+
+```{r}
+lm_res$.extracts[[1]]
+
+# To get the results
+lm_res$.extracts[[1]][[1]]
+```
+
+Flatten and collect all the results
+
+```{r}
+all_coef <- map_dfr(lm_res$.extracts, ~ .x[[1]][[1]])
+# Show the replicates for a single predictor:
+filter(all_coef, term == "Year_Built")
+```
