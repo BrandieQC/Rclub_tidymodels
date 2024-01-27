@@ -36,6 +36,7 @@ If you need to make a new predictor variable, go ahead.
 names(Chicago)
 Chicago %>% ggplot(aes(ridership)) + geom_histogram()
 
+#package timeDate pulls out weekends and holidays
 Chicago <- Chicago %>%
   mutate(weekend = isBizday(as.timeDate(date)))
 head(Chicago)
@@ -52,6 +53,7 @@ So that we are working on the same split, use `set.seed(010324)` in you code chu
 ```{r}
 set.seed(010324)
 chicago_split <- initial_split(Chicago, prop = 0.80, strata = ridership)
+#could also have stratified by weekend
 chicago_train <- training(chicago_split)
 chicago_test <- testing(chicago_split)
 ```
@@ -149,7 +151,8 @@ chicago_recipe %>% prep()
 chicago_recipe %>% prep() %>% bake(chicago_train[1:6,])
 
 chicago_recipe2 <- #you don't need to write out each variable, just need to know the order of the column names
-  recipe(ridership ~ .,
+  recipe(ridership ~ ., 
+         #update_role date #need to get rid of the column date so it's not a predictor 
          data = chicago_train) %>%
   step_normalize(Austin:weather_storm) %>% 
   step_pca(temp_min:weather_storm, 

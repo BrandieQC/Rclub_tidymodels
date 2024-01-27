@@ -85,7 +85,7 @@ simple_ames <-
 simple_ames
 ```
 
-1.  The call to `recipe()` with a formula tells the recipe the *roles* of the \"ingredients\" or variables (e.g., predictor, outcome). It only uses the data `ames_train` to determine the data types for the columns.
+1.  The call to `recipe()` with a formula tells the recipe the *roles* of the "ingredients" or variables (e.g., predictor, outcome). It only uses the data `ames_train` to determine the data types for the columns.
 
 2.  `step_log()` declares that `Gr_Liv_Area` should be log transformed.
 
@@ -153,7 +153,7 @@ lm_fit %>%
   slice(1:5)
 ```
 
-## Examples of Recipe Steps 
+## Examples of Recipe Steps
 
 ### Qualitative Data --\> Numeric Format
 
@@ -163,7 +163,7 @@ Prior to transforming qualitative data to be encoded numerically, factor levels 
 
 -   `step_novel()` can allot a new level for cases where a new factor level may be encountered in future data.
 
--   `step_other()` can be used to analyze the frequencies of the factor levels in the training set and convert infrequently occurring values to a catch-all level of \"other,\" with a threshold that can be specified.
+-   `step_other()` can be used to analyze the frequencies of the factor levels in the training set and convert infrequently occurring values to a catch-all level of "other," with a threshold that can be specified.
 
     -   Ex: Neighbors that have less than 5 properties can be lumped together
 
@@ -219,7 +219,7 @@ DON'T use a factor column that has not already been transformed to a dummy varia
 
 Recipes also provides more coherent names for interaction terms (underscores and x).
 
-### Spline Functions 
+### Spline Functions
 
 "When a predictor has a nonlinear relationship with the outcome, some types of predictive models can adaptively approximate this relationship during training. However, simpler is usually better and it is not uncommon to try to use a simple model, such as a linear fit, and add in specific nonlinear features for predictors that may need them, such as longitude and latitude for the Ames housing data. One common method for doing this is to use *spline* functions to represent the data. Splines replace the existing numeric predictor with a set of columns that allow a model to emulate a flexible, nonlinear relationship. As more spline terms are added to the data, the capacity to nonlinearly represent the relationship increases. Unfortunately, it may also increase the likelihood of picking up on data trends that occur by chance (i.e., overfitting)."
 
@@ -260,7 +260,7 @@ recipe(Sale_Price ~ Neighborhood + Gr_Liv_Area + Year_Built + Bldg_Type + Latitu
 
 *Note: All of these AMES models are just for demonstration. For example, neighborhood and latitude likely represent the same underlying data so you should probably exclude one of them.*
 
-### Feature Extraction 
+### Feature Extraction
 
 Ex: PCA
 
@@ -273,23 +273,23 @@ Recipe step for PCA with AMES size predictors:
 
 *Note: you should probably include `step_normalize()`, which will center and scale each column, prior to the PCA step.*
 
-### Row Sampling Steps 
+### Row Sampling Steps
 
 Ex: subsampling techniques.
 
 See section 8.4.5 for more info.
 
-### General Transformations 
+### General Transformations
 
 Mirroring the original **dplyr** operation, `step_mutate()` can be used to conduct a variety of basic operations to the data.
 
 Be careful to avoid data leakage. Ex: a mutate that includes multiple steps like, x= w\>mean(w). The mean would come from the new data and not the training set.
 
-### Natural Language Processing 
+### Natural Language Processing
 
 See section 8.4.7 for more info.
 
-## Skipping Steps for New Data 
+## Skipping Steps for New Data
 
 For simple transformations of the outcome column(s), conduct those outside the recipe
 
@@ -359,7 +359,7 @@ tidy(estimated_recipe, id = "my_id") #tells it to pull out the results from step
 tidy(estimated_recipe, number = 2)
 ```
 
-## Column Roles 
+## Column Roles
 
 In some cases, it may be useful to keep a column that isn't a predictor or outcome. Ex: street address in the AMES data.
 

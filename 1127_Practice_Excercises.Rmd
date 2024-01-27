@@ -223,7 +223,7 @@ pred_obs_data <- chicks_test_chick_ungrouped %>%
   bind_cols(predict(lm_fit, chicks_test_chick_ungrouped, type = "pred_int")) 
 pred_obs_data
 
-#If you have multiple models can ocmbine them into a tibble
+#If you have multiple models can combine them into a tibble
 #tibble(name=ls(.GlobalEnv, pattern=".*_fit.*"), fit=) #see Julin's code 
 #prediction via parsnip may not be able to take into account random effects from mixed effects models
 #can use predict.merMod outside of parsnip context #can make predictions for new block or new chick for example 

@@ -15,6 +15,10 @@ knitr::opts_chunk$set(echo = TRUE)
 
 <https://www.tmwr.org/performance>
 
+Notes from meeting
+
+-   Couple hundred is probably a sufficient sample size to have a training and test set to do this sort of model validation
+
 Which metrics you use to examine model effectiveness matters!
 
 -   Root mean square (RMSE) = measure of accuracy
@@ -58,7 +62,7 @@ lm_wflow <-
 lm_fit <- fit(lm_wflow, ames_train)
 ```
 
-## Performance Metrics and Inference 
+## Performance Metrics and Inference
 
 Inferential vs. predictive models
 
@@ -72,7 +76,7 @@ Inferential vs. predictive models
 
     -   Underlying statistical qualities not as important
 
-## Regression Metrics 
+## Regression Metrics
 
 General syntax of yardstick functions: function(data, truth, ...)
 
@@ -93,7 +97,7 @@ ames_test_res
 
 \*Note: they use the test set here for illustration, but suggest that a resampling method would be better than using the test set at this step of the modeling process.
 
-#### Match predicted values with corresponding observed outcome 
+#### Match predicted values with corresponding observed outcome
 
 ```{r}
 ames_test_res <- bind_cols(ames_test_res, ames_test %>% select(Sale_Price))
@@ -150,7 +154,7 @@ Columns "Class1" and "Class2" = predicted class probabilities
 
 Column "predicted" = discrete predictions
 
-### Yardstick functions for discrete predictions 
+### Yardstick functions for discrete predictions
 
 ```{r}
 # A confusion matrix: 
@@ -184,7 +188,7 @@ The functions have an argument called `event_level` to distinguish positive and 
 f_meas(two_class_example, truth, predicted, event_level = "second")
 ```
 
-### Yardstick functions for predicted probabilities 
+### Yardstick functions for predicted probabilities
 
 Receiver operating characteristic (ROC) curve - computes the sensitivity and specificity over a continuum of diff event thresholds
 
@@ -204,7 +208,7 @@ autoplot(two_class_curve)
 
 Other functions that use probability estimates: `gain_curve()`, `lift_curve()`, and `pr_curve()`
 
-## Multiclass Classification Metrics 
+## Multiclass Classification Metrics
 
 For 3 or more classes...
 
