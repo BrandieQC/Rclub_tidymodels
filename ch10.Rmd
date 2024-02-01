@@ -11,6 +11,10 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+Notes from meeting
+
+-   repeated CV useful if your original folds are giving you a lot of variance, but you need a large sample size
+
 # Chapter 10 - Resampling for Evaluating Performance
 
 <https://www.tmwr.org/resampling>
@@ -99,7 +103,7 @@ estimate_perf(rf_fit, ames_train)
 
 estimate_perf(lm_fit, ames_train)
 
-#Random forest model seems ot have a better fit
+#Random forest model seems to have a better fit
 ```
 
 Apply the rf model to the test set
@@ -324,7 +328,7 @@ val_res
 collect_metrics(val_res)
 ```
 
-## Parallel Processing 
+## Parallel Processing
 
 The models created during resampling could be fit simultaneously w/o issues (each one is independent).
 
