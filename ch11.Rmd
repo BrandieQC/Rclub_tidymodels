@@ -13,6 +13,22 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Chapter 11 - Comparing Models with Resampling
 
+Notes from meeting
+
+-   Regularly accepted method of model comparison. Likelihood ratio test - chisq test tells you if the likelihoods are significantly different
+
+    -   This would be comparing two models at a time though
+
+    -   \--\> the method of putting rsqs into an ANOVA is conceptually similar so shouldn't be an issue of using your data in analysis twice
+
+-   Practical effect size
+
+    -   Use intuition to set effect size that would be biologically significant
+
+    -   If 1% better but takes 2x times to run, pick the quicker model
+
+    -   If two models are basically the same, choose the simplest model
+
 <https://www.tmwr.org/compare>
 
 ### Previous AMES Code:
@@ -233,7 +249,7 @@ Final distributions of the model parameters are combos of the priors and likelih
 
 -   Full probabilistic desc of the model's estimated parameters
 
-### Random Intercept Model 
+### Random Intercept Model
 
 Assume the resamples only change the intercept of the model.
 
@@ -247,9 +263,8 @@ tidyposterior package has functions to fit Bayesian models to compare resampled 
 
     -   estimation process is iterative and replicated several times in *chains*
 
-```{=html}
 <!-- -->
-```
+
 -   perf_mod() = main function
 
     -   for workflows: creates an ANOVA where groups correspond to the workflows
@@ -311,7 +326,7 @@ autoplot(model_post) #overlaid density plots from the tidied object
 
 Compare models
 
--   Start witht the basic vs. spline linear model
+-   Start with the basic vs. spline linear model
 
 ```{r}
 rqs_diff <-
@@ -363,4 +378,4 @@ Low pract_equiv for the other models means that they are much different from the
 
 More resamples --\> increased precision of the overall resampling estimate.
 
-"The width of the intervals decreases as more resamples are added. Clearly, going from ten resamples to thirty has a larger impact than going from eighty to 100. There are diminishing returns for using a \"large\" number of resamples (\"large\" will be different for different data sets)."
+"The width of the intervals decreases as more resamples are added. Clearly, going from ten resamples to thirty has a larger impact than going from eighty to 100. There are diminishing returns for using a"large" number of resamples ("large" will be different for different data sets)."
