@@ -69,19 +69,19 @@ set.seed(1003)
 rf_res <- rf_wflow %>% fit_resamples(resamples = ames_folds, control = keep_pred)
 ```
 
-## Model Parameters 
+## Model Parameters
 
 Some parameters like beta0 and beta1 in linear regression can be estimated directly from the data.
 
 Other parameters like K in the KNN model (number of neighbors (governs the flexibility of the class boundary) cannot be estimated directly from the data.
 
--   Question: Would the parameters in the Weibull model count for this?
+-   Question: Would the parameters in the Weibull model count for this? No b/c you can estimate it from the data itself
 
 ## Tuning Parameters for Different Types of Models
 
-See the section 12.2 for examples of different tuning parameters.
+See section 12.2 for examples of different tuning parameters.
 
-Not appropriate to tune the parameters for prior distributions in Bayesian analysis: "Our prior beliefs should not be subject to optimization. Tuning parameters are typically optimized for performance whereas priors should not be tweaked to get \"the right results.\"
+Not appropriate to tune the parameters for prior distributions in Bayesian analysis: "Our prior beliefs should not be subject to optimization. Tuning parameters are typically optimized for performance whereas priors should not be tweaked to get"the right results."
 
 ## What do we optimize?
 
@@ -170,7 +170,7 @@ A lot of tuning parameters modulate the amount of model complexity --\> wrong ch
 
 Need to use resampling to see if a model is overfit to the training set (if more than 2 predictors, test set won't be sufficient).
 
-## Two General Strategies for Optimization 
+## Two General Strategies for Optimization
 
 1.  Grid Search - pre-define a set of parameter values to evaluate.
 
@@ -235,7 +235,7 @@ wflow_param <-
 wflow_param
 ```
 
-### Use dials package for tuning functions 
+### Use dials package for tuning functions
 
 Usually the same name as the parameter argument:
 
