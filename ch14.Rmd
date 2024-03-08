@@ -1,0 +1,303 @@
+---
+title: "Chapter 14"
+author: "Brandie Quarles"
+date: "`r Sys.Date()`"
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Chapter 14 - Iterative Search
+
+<https://www.tmwr.org/iterative-search>
+
+Iterative search predicts which values to test next compared to grid which searches a pre-defined set of candidate values.
+
+-   sensible approach when grid search isn't feasible or efficient
+
+2 Search Methods
+
+1.  Bayesian Optimization - uses a statistical model to predict better settings
+
+2.  Simulated annealing - global search method
+
+## Data from Last Chapter to reuse
+
+```{r}
+library(tidymodels)
+tidymodels_prefer()
+library(finetune) #need this for sim_anneal fucntions 
+
+data(cells)
+cells <- cells %>% select(-case)
+
+set.seed(1304)
+cell_folds <- vfold_cv(cells)
+
+roc_res <- metric_set(roc_auc)
+```
+
+## A Support Vector Machine Model
+
+Using the same cell segmentation data from Chapter 13. This time using a support vector machine (SVM) model. Two tuning parameters to optimize are:
+
+-   SVM cost value
+
+-   Radial basis function kernel parameter \$\sigma
+
+```{r}
+svm_rec <- 
+  recipe(class ~ ., data = cells) %>%
+  step_YeoJohnson(all_numeric_predictors()) %>%
+  step_normalize(all_numeric_predictors())
+
+svm_spec <- 
+  svm_rbf(cost = tune(), rbf_sigma = tune()) %>% 
+  set_engine("kernlab") %>% 
+  set_mode("classification")
+
+svm_wflow <- 
+  workflow() %>% 
+  add_model(svm_spec) %>% 
+  add_recipe(svm_rec)
+```
+
+Default parameter ranges:
+
+```{r}
+cost()
+
+rbf_sigma()
+```
+
+Can Slightly change the rbf_sigma parameter
+
+```{r}
+svm_param <- 
+  svm_wflow %>% 
+  extract_parameter_set_dials() %>% 
+  update(rbf_sigma = rbf_sigma(c(-7, -1)))
+```
+
+Iterative search procedures require at least some resampled performance stats.
+
+Create a small regular grid (they based this off a larger regular grid that they didn't share the code for in the chapter):
+
+```{r}
+set.seed(1401)
+start_grid <- 
+  svm_param %>% 
+  update(
+    cost = cost(c(-6, 1)),
+    rbf_sigma = rbf_sigma(c(-6, -4))
+  ) %>% 
+  grid_regular(levels = 2)
+
+set.seed(1402)
+svm_initial <- 
+  svm_wflow %>% 
+  tune_grid(resamples = cell_folds, grid = start_grid, metrics = roc_res)
+
+collect_metrics(svm_initial)
+```
+
+These results can be ingested by the iterative tuning functions as initial values.
+
+## Bayesian Optimization
+
+1.  Analyze the current resampling results and create a predictive model to predict the tuning parameter values that have yet to be evaluated.
+
+2.  Those values are then resampled
+
+3.  Those results are then used in another predictive model and so on
+
+4.  Proceeds for a set number of iterations or until no further improvements occur
+
+Primary concerns:
+
+-   How to create the model
+
+-   How to select parameters recommended by that model
+
+### A Gaussian Process (GP) Model
+
+GP = collection of random vars ---\> joint prob. dist. = multivariate Gaussian
+
+Those random vars = collection of performance metrics for the tuning parameter candidate values
+
+GP models are specified by their mean and covariance functions. Covariance = most impactful on the nature of the model
+
+-   As distance b/t 2 tuning parameter combos increases the covariance b/t performance metrics increases exponentially
+
+-   Allows the model to represent highly nonlinear relats b/t model performance and tuning parameters when sample sizes are low
+
+-   Model becomes computationally expensive with more tuning parameter combos
+
+Iterative Process: "Based on the initial grid of four results (collect_metrics(svm_initial)), the GP model is fit, candidates are predicted, and a fifth tuning parameter combination is selected. We compute performance estimates for the new configuration, the GP is refit with the five existing results (and so on)."
+
+### Acquisition Functions
+
+These functions facilitate the tradeoff b/t mean and variance of GP models.
+
+-   *Exploration* biases the selection towards regions where there are fewer (if any) observed candidate models. This tends to give more weight to candidates with higher variance and focuses on finding new results.
+
+-   *Exploitation* principally relies on the mean prediction to find the best (mean) value. It focuses on existing results.
+
+*expected improvement* - even if one set of parameters results in a better mean fit, a set that has a slightly smaller mean, but a higher variance and therefore more overall prob. area above the current best results would have the higher expected improvement.
+
+### The tune_bayes() Function
+
+Similar to tune_grid(), but with the below additional arguments:
+
+-   `iter` = max number of search iterations.
+
+-   `initial` can be either an integer, an object produced using `tune_grid()`, or one of the racing functions.
+
+    -   Using an integer specifies the size of a space-filling design that is sampled prior to the first GP model.
+
+-   `objective` = argument for which acquisition function should be used.
+
+    -   The **tune** package contains functions to pass here, such as `exp_improve()` or `conf_bound()`.
+
+-   The `param_info` argument, in this case, specifies the range of the parameters as well as any transformations that are used.
+
+    -   These are used to define the search space.
+
+    -   In situations where the default parameter objects are insufficient, `param_info` is used to override the defaults.
+
+The `control` argument now uses the results of `control_bayes()`. Some helpful arguments there are:
+
+-   `no_improve` = integer that will stop the search if improved parameters are not discovered within `no_improve` iterations.
+
+-   `uncertain`= integer (or `Inf`) that will take an *uncertainty sample* if there is no improvement within `uncertain` iterations.
+
+    -   This will select the next candidate that has large variation.
+
+    -   It has the effect of pure exploration since it does not consider the mean prediction.
+
+-   `verbose` = print logging information as the search proceeds.
+
+```{r}
+ctrl <- control_bayes(verbose = TRUE)
+
+set.seed(1403)
+svm_bo <-
+  svm_wflow %>%
+  tune_bayes(
+    resamples = cell_folds,
+    metrics = roc_res,
+    initial = svm_initial,
+    param_info = svm_param,
+    iter = 25,
+    control = ctrl
+  )
+
+#Not sure the verbose argument worked for me I got output like:
+#i Gaussian process model
+#✓ Gaussian process model
+#i Generating 5000 candidates
+#i Predicted candidates
+#i Estimating performance
+#✓ Estimating performance
+```
+
+Use same functions as grid search for interrogating the results:
+
+```{r}
+show_best(svm_bo)
+
+autoplot(svm_bo, type = "performance") #shows how the outcome (ROC in this case) changed over the search 
+#My plot looks different from theirs...
+
+autoplot(svm_bo, type = "parameters") #shows parameter values over iterations 
+```
+
+## Simulated Annealing
+
+General nonlinear search routine
+
+-   Can navigate many different search landscapes (inlcuding discontinuous functions)
+
+-   Can reassess previous solutions
+
+### Simulated Annealing Search Process
+
+1.  Starts with an initial value
+
+2.  Controlled random walk through parameter space
+
+3.  Each new candidate parameter = small perturbation of prev. value --\> keeps new point w/in a local neighborhood
+
+4.  New candidate parameter = resampled to obtain corresponding performance value
+
+5.  If get better results than prev. parameters, it is accepted as new best and process continues
+
+6.  If get worse results could still use it to proceed
+
+    1.  Likelihood of accepting a bad result decreases as performance becomes worse (slightly worse result has a better chance of acceptance than a big drop)
+
+    2.  Wants to accept fewer suboptimal values as the search proceeds so \# of iterations also affects acceptance prob.
+
+"The acceptance probabilities of simulated annealing allow the search to proceed in the wrong direction, at least for the short term, with the potential to find a much better region of the parameter space in the long run."
+
+Can adjust coefficients to find an acceptance prob. profile that suits your needs.
+
+-    In `finetune::control_sim_anneal()`, the default for this `cooling_coef` argument is 0.02.
+
+-   Decreasing that value encourages the search to be more accepting of poor results
+
+Can specify a restart threshold to revisit the last globally best parameter settings if there are a string of failures
+
+IMP: need to define how to perturb the tuning parameters from iteration to iteration
+
+-   *generalized simulated annealing -* For continuous tuning parameters, we define a small radius to specify the local \"neighborhood.\"
+
+### The tune_sim_anneal() funtion
+
+Syntax the same as tune_bayes() except no options for acquisiton functions or uncertainty sampling.
+
+Use control_sim_anneal() to define the local neighborhood and cooling schedule:
+
+-   `no_improve` = integer that will stop the search if no global best or improved results are discovered within `no_improve` iterations.
+
+    -   Accepted suboptimal or discarded parameters count as \"no improvement.\"
+
+-   `restart` = number of iterations with no new best results before starting from the previous best results.
+
+-   `radius` = numeric vector on (0, 1) that defines the minimum and maximum radius of the local neighborhood around the initial point.
+
+-   `flip` = probability value that defines the chances of altering the value of categorical or integer parameters.
+
+-   `cooling_coef` is the c coefficient in the acceptance prob. equation that modulates how quickly the acceptance probability decreases over iterations.
+
+    -   Larger values of `cooling_coef` decrease the probability of accepting a suboptimal parameter setting.
+
+```{r}
+ctrl_sa <- control_sim_anneal(verbose = TRUE, no_improve = 10L)
+
+set.seed(1404)
+svm_sa <-
+  svm_wflow %>%
+  tune_sim_anneal(
+    resamples = cell_folds,
+    metrics = roc_res,
+    initial = svm_initial,
+    param_info = svm_param,
+    iter = 50,
+    control = ctrl_sa
+  )
+```
+
+```{r}
+show_best(svm_sa)
+
+autoplot(svm_sa, type = "performance") #shows how the outcome (ROC in this case) changed over the search 
+
+autoplot(svm_sa, type = "parameters") #shows parameter values over iterations 
+
+#these look like their plots!
+```
