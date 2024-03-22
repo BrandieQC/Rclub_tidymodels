@@ -238,7 +238,6 @@ grid_ctrl <-
 sleep_for_a_minute <- function() { Sys.sleep(60) }
 
 start_time <- Sys.time()
-# Time difference of 1.000327 mins
 grid_results <-
    all_workflows %>%
    workflow_map(
@@ -272,7 +271,7 @@ grid_results %>%
 #! There were 6 workflows that had no results.
 ```
 
-"Also by default, the function ranks all of the candidate sets; that\'s why the same model can show up multiple times in the output. An option, called `select_best`, can be used to rank the models using their best tuning parameter combination."
+"Also by default, the function ranks all of the candidate sets; that's why the same model can show up multiple times in the output. An option, called `select_best`, can be used to rank the models using their best tuning parameter combination."
 
 Plot the rankings:
 
@@ -310,6 +309,7 @@ race_ctrl <-
       save_workflow = TRUE
    )
 
+start_time <- Sys.time()
 race_results <-
    all_workflows %>%
    workflow_map( #map the function to all workflows 
@@ -319,6 +319,14 @@ race_results <-
       grid = 25,
       control = race_ctrl
    )
+end_time <- Sys.time()
+end_time - start_time
+#Time difference of 26.75426 mins
+#Warning: package ‘earth’ was built under R version 4.3.2Warning: package ‘plotmo’ was built #under R version 4.3.2i Creating pre-processing data to finalize unknown parameter: mtry
+#✖ The workflow requires packages that are not installed: 'xgboost'. Skipping this workflow.
+#✖ The workflow requires packages that are not installed: 'kknn'. Skipping this workflow.
+#✖ The workflow requires packages that are not installed: 'kknn'. Skipping this workflow.
+
 
 race_results #now the results column has "race[+} instead of tune[+]
 ```
